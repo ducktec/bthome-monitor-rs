@@ -119,7 +119,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if cfg!(target_os = "macos") {
         warn!(
             "Device addresses will be shown as device UUIDs instead of MAC \
-            addresses MacOS privacy restrictions."
+            addresses due to MacOS privacy restrictions."
         );
     }
 
