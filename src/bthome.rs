@@ -1,10 +1,24 @@
+use aes::Aes128;
 use anyhow::{Result, anyhow};
-use log::debug;
+use ccm::{
+    Ccm,
+    aead::{Aead, KeyInit},
+};
+use generic_array::{
+    GenericArray,
+    typenum::{U4, U13},
+};
+use log::{debug, warn};
 use std::fmt;
 use uuid::Uuid;
 
 /// BTHome service UUID
 pub const BTHOME_UUID: Uuid = Uuid::from_u128(0x0000fcd200001000800000805f9b34fb);
+/// Short BTHome service UUID (little-endian: D2FC)
+pub const BTHOME_SHORT_UUID: &[u8; 2] = &[0xD2, 0xFC];
+
+/// AES-CCM message authentication code length in bytes
+const MIC_LENGTH: usize = 4;
 
 /// BThome measurement data representation
 #[derive(Debug, Clone)]
@@ -42,8 +56,112 @@ impl fmt::Display for BThomeData {
     }
 }
 
+/// Encryption status
+#[derive(Debug, Clone, PartialEq)]
+pub enum EncryptionStatus {
+    /// Not encrypted
+    NotEncrypted,
+    /// Encrypted but no key provided
+    EncryptedNoKey,
+    /// Encrypted but failed to decrypt
+    EncryptedFailedDecryption(String),
+    /// Successfully decrypted
+    Decrypted,
+}
+
+impl fmt::Display for EncryptionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EncryptionStatus::NotEncrypted => write!(f, "Not Encrypted"),
+            EncryptionStatus::EncryptedNoKey => write!(f, "Encrypted (No Key Provided)"),
+            EncryptionStatus::EncryptedFailedDecryption(reason) => {
+                write!(f, "Encrypted (Decryption Failed: {})", reason)
+            }
+            EncryptionStatus::Decrypted => write!(f, "Decrypted"),
+        }
+    }
+}
+
+/// Container for BTHome advertisement data and metadata
+#[derive(Debug, Clone)]
+pub struct BThomePacket {
+    /// The version of the BTHome protocol
+    pub version: u8,
+    /// Whether the device is trigger-based
+    pub is_trigger_based: bool,
+    /// The encryption status of the packet
+    pub encryption_status: EncryptionStatus,
+    /// Parse error, if any
+    pub parse_error: Option<String>,
+    /// The data points in the packet
+    pub data: Vec<BThomeData>,
+}
+
+impl BThomePacket {
+    /// Create regular BThomePacket
+    pub fn new(
+        version: u8,
+        is_trigger_based: bool,
+        encryption_status: EncryptionStatus,
+        data: Vec<BThomeData>,
+    ) -> Self {
+        Self {
+            version,
+            is_trigger_based,
+            encryption_status,
+            parse_error: None,
+            data,
+        }
+    }
+
+    /// Create BThomePacket with a parse error
+    pub fn with_error(
+        version: u8,
+        is_trigger_based: bool,
+        encryption_status: EncryptionStatus,
+        error: String,
+    ) -> Self {
+        Self {
+            version,
+            is_trigger_based,
+            encryption_status,
+            parse_error: Some(error),
+            data: Vec::new(),
+        }
+    }
+}
+
+impl fmt::Display for BThomePacket {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "BTHome v{} | {}", self.version, self.encryption_status)?;
+
+        if self.is_trigger_based {
+            writeln!(f, "Trigger-based: Yes")?;
+        }
+
+        if let Some(ref error) = self.parse_error {
+            writeln!(f, "Parse Error: {}", error)?;
+        }
+
+        if !self.data.is_empty() {
+            writeln!(f, "Data:")?;
+            for data_point in &self.data {
+                writeln!(f, "  {}", data_point)?;
+            }
+        } else if self.parse_error.is_none() {
+            writeln!(f, "No data points available")?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Parse raw BThome advertisement data into data points
-pub fn bthome_parser(data: &[u8]) -> Result<Vec<BThomeData>> {
+pub fn bthome_parser(
+    data: &[u8],
+    encryption_key: Option<&str>,
+    device_address: &str,
+) -> Result<BThomePacket> {
     if data.is_empty() {
         return Err(anyhow!("Empty data"));
     }
@@ -60,18 +178,57 @@ pub fn bthome_parser(data: &[u8]) -> Result<Vec<BThomeData>> {
     // Extract BTHome version (bits 5-7)
     let version = (format_byte >> 5) & 0x07;
 
-    if is_encrypted {
-        return Err(anyhow!("Encrypted BThome data is not supported"));
-    }
-
-    if version == 2 {
-        debug!("BTHome v2 device (trigger-based: {})", is_trigger_based);
-        return parse_bthome_v2(&data[1..]); // Skip the info byte
-    } else {
+    // Verify the BTHome version is supported
+    if version != 2 {
         return Err(anyhow!(
             "Unsupported BTHome version: {} (only version 2 supported)",
             version
         ));
+    }
+
+    // Handle decryption if needed
+    let (payload, encryption_status) = if is_encrypted {
+        if let Some(key) = encryption_key {
+            // Try to decrypt and return the payload
+            match decrypt_bthome_data(data, key, device_address) {
+                Ok(decrypted) => (decrypted, EncryptionStatus::Decrypted),
+                Err(e) => {
+                    warn!("Failed to decrypt BTHome data: {}", e);
+                    return Ok(BThomePacket::new(
+                        version,
+                        is_trigger_based,
+                        EncryptionStatus::EncryptedFailedDecryption(e.to_string()),
+                        Vec::new(),
+                    ));
+                }
+            }
+        } else {
+            return Ok(BThomePacket::new(
+                version,
+                is_trigger_based,
+                EncryptionStatus::EncryptedNoKey,
+                Vec::new(),
+            ));
+        }
+    } else {
+        // Not encrypted, just skip the format byte
+        (data[1..].to_vec(), EncryptionStatus::NotEncrypted)
+    };
+
+    // Parse the payload
+    match parse_bthome_v2(&payload) {
+        Ok(data_points) => Ok(BThomePacket::new(
+            version,
+            is_trigger_based,
+            encryption_status,
+            data_points,
+        )),
+        Err(e) => Ok(BThomePacket::with_error(
+            version,
+            is_trigger_based,
+            encryption_status,
+            e.to_string(),
+        )),
     }
 }
 
@@ -102,6 +259,101 @@ fn parse_bthome_v2(data: &[u8]) -> Result<Vec<BThomeData>> {
     }
 
     Ok(results)
+}
+
+/// Decrypt BTHome v2 encrypted data
+fn decrypt_bthome_data(data: &[u8], encryption_key: &str, device_address: &str) -> Result<Vec<u8>> {
+    // Format should be:
+    // byte 0: BTHome device data byte (format byte)
+    // bytes 1-N: Encrypted data
+    // bytes N-(N+4): Counter (4 bytes)
+    // bytes (N+4)-(N+8): MIC (4 bytes)
+
+    if data.len() < 10 {
+        // 1 (format) + 1 (min data) + 4 (counter) + 4 (MIC)
+        return Err(anyhow!("Encrypted data is too short"));
+    }
+
+    // Check key format (length)
+    let key_bytes = match hex::decode(encryption_key) {
+        Ok(k) => k,
+        Err(_) => {
+            return Err(anyhow!(
+                "Invalid encryption key format, must be 32 hex characters"
+            ));
+        }
+    };
+
+    if key_bytes.len() != 16 {
+        return Err(anyhow!(
+            "Invalid encryption key length, must be 16 bytes (32 hex characters)"
+        ));
+    }
+
+    let mac_bytes = parse_mac_address(device_address)?;
+
+    // Extract the format byte, counter, and MIC
+    let format_byte = data[0];
+    let counter_start = data.len() - MIC_LENGTH - 4;
+    let counter = &data[counter_start..counter_start + 4];
+    let mic = &data[counter_start + 4..];
+
+    // The ciphertext is everything between the format byte and the counter
+    let ciphertext = &data[1..counter_start];
+
+    // Build the nonce: MAC(6) + UUID(2) + format(1) + counter(4)
+    let mut nonce = Vec::with_capacity(13);
+    nonce.extend_from_slice(&mac_bytes);
+    nonce.extend_from_slice(BTHOME_SHORT_UUID);
+    nonce.push(format_byte);
+    nonce.extend_from_slice(counter);
+
+    let key = GenericArray::clone_from_slice(&key_bytes);
+    let nonce_array = GenericArray::clone_from_slice(&nonce);
+
+    // Initialize the CCM cipher
+    let cipher = Ccm::<Aes128, U4, U13>::new(&key);
+
+    // Combine ciphertext and mic for decryption
+    let mut combined = Vec::with_capacity(ciphertext.len() + mic.len());
+    combined.extend_from_slice(ciphertext);
+    combined.extend_from_slice(mic);
+
+    // Decrypt the data
+    match cipher.decrypt(&nonce_array, combined.as_ref()) {
+        Ok(plaintext) => {
+            debug!(
+                "Successfully decrypted BTHome data: {}",
+                hex::encode(&plaintext)
+            );
+            Ok(plaintext)
+        }
+        Err(e) => Err(anyhow!("Decryption failed: {}", e)),
+    }
+}
+
+/// Parse a MAC address string into bytes
+fn parse_mac_address(address: &str) -> Result<[u8; 6]> {
+    let clean_address = address.replace(":", "").replace("-", "");
+
+    // For macOS, the "address" will be a UUID, which we can't use for decryption, sorry :(
+    if clean_address.len() != 12 {
+        return Err(anyhow!("Invalid MAC address format for encryption"));
+    }
+
+    let mac_bytes = match hex::decode(&clean_address) {
+        Ok(b) => {
+            if b.len() != 6 {
+                return Err(anyhow!("Invalid MAC address length"));
+            }
+            let mut result = [0u8; 6];
+            result.copy_from_slice(&b);
+            result
+        }
+        Err(_) => return Err(anyhow!("Invalid MAC address format")),
+    };
+
+    Ok(mac_bytes)
 }
 
 // Parse individual BTHome objects (we take the first matching one)

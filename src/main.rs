@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 mod bthome;
-use bthome::{BThomeData, BThomeValue, bthome_parser};
+use bthome::{BThomePacket, BThomeValue, bthome_parser};
 
 use crate::bthome::BTHOME_UUID;
 
@@ -35,6 +35,10 @@ struct Args {
     /// Timeout in seconds (0 = run forever)
     #[arg(short, long, default_value = "0")]
     timeout: u64,
+
+    /// BTHome encryption key (32 hex characters for 16 bytes)
+    #[arg(short, long)]
+    key: Option<String>,
 }
 
 #[derive(Debug)]
@@ -42,7 +46,7 @@ struct Device {
     name: Option<String>,
     address: String,
     last_seen: Instant,
-    data: Option<Vec<BThomeData>>,
+    data: Option<BThomePacket>,
     rssi: i16,
     raw_data: Option<Vec<u8>>,
     last_packet_id: Option<u64>,
@@ -78,9 +82,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Indicate platform limitation on macOS
     if cfg!(target_os = "macos") {
         warn!(
-            "On MacOS, device addresses will be shown as device UUIDs instead of MAC \
-            addresses due to platform restrictions. \
-            See https://developer.apple.com/documentation/corebluetooth/cbpeer/identifier"
+            "Device addresses will be shown as device UUIDs instead of MAC \
+            addresses MacOS privacy restrictions."
         );
     }
 
@@ -161,10 +164,10 @@ async fn process_advertisement(
         }
     }
 
-    let parsed_data = match bthome_parser(&data) {
-        Ok(data) => {
+    let parsed_data = match bthome_parser(&data, args.key.as_deref(), &address) {
+        Ok(packet) => {
             debug!("Successfully parsed BThome data");
-            Some(data)
+            Some(packet)
         }
         Err(e) => {
             warn!("Failed to parse BThome data: {}", e);
@@ -193,10 +196,10 @@ async fn process_advertisement(
         device.raw_data = Some(data.clone());
     }
 
-    if let Some(parsed) = &parsed_data {
+    if let Some(packet) = &parsed_data {
         // Deduplicate printing advertisement data based on packet ID (if available)
         let mut current_packet_id = None;
-        for item in parsed {
+        for item in &packet.data {
             if item.measurement_type == "packet_id" {
                 if let BThomeValue::Uint(id) = &item.value {
                     current_packet_id = Some(*id);
@@ -244,15 +247,10 @@ fn print_device_info(device: &Device, args: &Args) {
         name_display, device.address, device.rssi
     );
 
-    if let Some(data) = &device.data {
-        if data.is_empty() {
-            println!("  No BThome data found");
-        } else {
-            println!("  BThome data:");
-            for item in data {
-                println!("    {}: {}", item.measurement_type, item.value);
-            }
-        }
+    if let Some(packet) = &device.data {
+        println!("{}", packet);
+    } else {
+        println!("  No BThome data found");
     }
 
     if args.raw {
