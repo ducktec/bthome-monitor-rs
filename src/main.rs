@@ -96,47 +96,58 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     while args.timeout == 0 || start_time.elapsed() < Duration::from_secs(args.timeout) {
         // Wait for the next event with a timeout to ensure graceful termination
-        if let Ok(Some(event)) =
-            tokio::time::timeout(Duration::from_millis(500), event_stream.next()).await
-        {
-            match event {
-                btleplug::api::CentralEvent::ServiceDataAdvertisement { id, service_data } => {
-                    if let Some(data) = service_data.get(&BTHOME_UUID) {
-                        if let Ok(peripheral) = adapter.peripheral(&id).await {
-                            if let Ok(properties) = peripheral.properties().await {
-                                if let Some(properties) = properties {
-                                    let local_name = properties.local_name.clone();
-                                    let address = peripheral.id();
-                                    let addr_str = format!("{}", address);
+        let event =
+            match tokio::time::timeout(Duration::from_millis(500), event_stream.next()).await {
+                Ok(Some(event)) => event,
+                _ => continue,
+            };
 
-                                    if args.verbose {
-                                        debug!(
-                                            "Found BThome device: {} ({}), RSSI: {:?}",
-                                            local_name.as_deref().unwrap_or("<unnamed>"),
-                                            addr_str,
-                                            properties.rssi
-                                        );
-                                    }
-
-                                    process_advertisement(
-                                        addr_str,
-                                        local_name,
-                                        properties.rssi,
-                                        data.clone(),
-                                        Arc::clone(&devices),
-                                        &args,
-                                    )
-                                    .await?;
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {
-                    // Ignore any other ble events
+        // Only process service data advertisements with BTHome data
+        let (id, data) = match event {
+            btleplug::api::CentralEvent::ServiceDataAdvertisement { id, service_data } => {
+                match service_data.get(&BTHOME_UUID) {
+                    Some(data) => (id, data.clone()),
+                    None => continue,
                 }
             }
+            _ => continue, // Ignore any other BLE events
+        };
+
+        // Get peripheral and properties
+        let peripheral = match adapter.peripheral(&id).await {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+
+        let properties = match peripheral.properties().await {
+            Ok(Some(props)) => props,
+            _ => continue,
+        };
+
+        // Extract device details
+        let local_name = properties.local_name.clone();
+        let address = peripheral.id();
+        let addr_str = format!("{}", address);
+
+        if args.verbose {
+            debug!(
+                "Found BThome device: {} ({}), RSSI: {:?}",
+                local_name.as_deref().unwrap_or("<unnamed>"),
+                addr_str,
+                properties.rssi
+            );
         }
+
+        // Process the advertisement
+        process_advertisement(
+            addr_str,
+            local_name,
+            properties.rssi,
+            data,
+            Arc::clone(&devices),
+            &args,
+        )
+        .await?;
     }
 
     info!("Stopping scan");
@@ -153,11 +164,7 @@ async fn process_advertisement(
     devices: Arc<Mutex<HashMap<String, Device>>>,
     args: &Args,
 ) -> Result<()> {
-    // Use address as device id (UUID on macOS, MAC address on others)
-    // TODO: there seems to be an indication on macOS that the UUID may change
-    let device_id = address.clone();
-
-    // Filter by (local) name if specified
+    // Filter by name if specified
     if let Some(filter_name) = &args.name {
         if !local_name.as_deref().unwrap_or("").contains(filter_name) {
             return Ok(());
@@ -176,11 +183,9 @@ async fn process_advertisement(
     };
 
     let mut devices_lock = devices.lock().await;
-
-    // Update or insert device information into global tracking map
-    let device = devices_lock.entry(device_id.clone()).or_insert(Device {
+    let device = devices_lock.entry(address.clone()).or_insert(Device {
         name: None,
-        address: address,
+        address,
         last_seen: Instant::now(),
         data: None,
         rssi: rssi.unwrap_or(-127),
@@ -191,48 +196,37 @@ async fn process_advertisement(
     device.name = local_name;
     device.last_seen = Instant::now();
     device.rssi = rssi.unwrap_or(-127);
-
     if args.raw {
-        device.raw_data = Some(data.clone());
+        device.raw_data = Some(data);
     }
 
-    if let Some(packet) = &parsed_data {
-        // Deduplicate printing advertisement data based on packet ID (if available)
-        let mut current_packet_id = None;
-        for item in &packet.data {
-            if item.measurement_type == "packet_id" {
+    let current_packet_id = parsed_data.as_ref().and_then(|packet| {
+        packet
+            .data
+            .iter()
+            .find(|item| item.measurement_type == "packet_id")
+            .and_then(|item| {
                 if let BThomeValue::Uint(id) = &item.value {
-                    current_packet_id = Some(*id);
-                    break;
+                    Some(*id)
+                } else {
+                    None
                 }
-            }
-        }
+            })
+    });
 
-        let should_print = match (current_packet_id, device.last_packet_id) {
-            // If there's no packet ID in the data, always print
-            (None, _) => true,
+    // Determine if we should print based on (past and current) packet ID
+    let should_print = match (current_packet_id, device.last_packet_id) {
+        (None, _) => true,       // No packet ID, always print
+        (Some(_), None) => true, // First packet with ID, print
+        (Some(current), Some(last)) if current != last => true, // ID changed, print
+        _ => parsed_data.is_none(), // For unchanged IDs, only print if there was an error
+    };
 
-            // If we have a packet ID but no previous one, print
-            (Some(_), None) => true,
+    // Update device data for future checks
+    device.data = parsed_data;
+    device.last_packet_id = current_packet_id;
 
-            // If the packet ID has changed, print
-            (Some(current), Some(last)) if current != last => true,
-
-            // by default, don't print
-            _ => false,
-        };
-
-        // Update the device data and last packet ID
-        device.data = parsed_data;
-        device.last_packet_id = current_packet_id;
-
-        // Print if needed
-        if should_print {
-            print_device_info(device, args);
-        }
-    } else {
-        // No parsed data - update device and print
-        device.data = parsed_data;
+    if should_print {
         print_device_info(device, args);
     }
 
@@ -242,17 +236,19 @@ async fn process_advertisement(
 fn print_device_info(device: &Device, args: &Args) {
     let name_display = device.name.as_deref().unwrap_or("<unnamed>");
 
+    // Header
     println!(
         "Device: {} ({}), RSSI: {}dBm",
         name_display, device.address, device.rssi
     );
 
-    if let Some(packet) = &device.data {
-        println!("{}", packet);
-    } else {
-        println!("  No BThome data found");
+    // Parsed data
+    match &device.data {
+        Some(packet) => println!("{}", packet),
+        None => println!("  No BThome data found"),
     }
 
+    // Raw data (only if requested)
     if args.raw {
         if let Some(raw) = &device.raw_data {
             println!("  Raw data: {}", hex::encode(raw));
