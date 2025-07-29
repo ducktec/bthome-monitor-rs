@@ -2,11 +2,15 @@
 use anyhow::Result;
 use btleplug::api::{Central, Manager as _, Peripheral as _, ScanFilter};
 use btleplug::platform::Manager;
+use chrono;
 use clap::Parser;
 use futures::stream::StreamExt;
 use log::{debug, info, warn};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::error::Error;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -39,6 +43,14 @@ struct Args {
     /// BTHome encryption key (32 hex characters for 16 bytes)
     #[arg(short, long)]
     key: Option<String>,
+
+    /// Output data in JSON format
+    #[arg(short = 'j', long)]
+    json: bool,
+
+    /// Write output to a file instead of stdout
+    #[arg(short, long)]
+    output: Option<String>,
 }
 
 #[derive(Debug)]
@@ -50,6 +62,18 @@ struct Device {
     rssi: i16,
     raw_data: Option<Vec<u8>>,
     last_packet_id: Option<u64>,
+}
+
+/// Serializable device data for JSON output
+#[derive(Debug, Serialize)]
+struct DeviceOutput<'a> {
+    name: Option<&'a str>,
+    address: &'a str,
+    rssi: i16,
+    data: &'a Option<BThomePacket>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_data: Option<String>,
+    timestamp: String,
 }
 
 #[tokio::main]
@@ -79,6 +103,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Filtering for devices with name: {}", name);
     }
 
+    if args.json {
+        info!("Output format: JSON");
+    } else {
+        info!("Output format: Formatted to stdout");
+    }
+
+    if let Some(output_file) = &args.output {
+        info!("Writing output to file: {}", output_file);
+    } else {
+        info!("Writing output to stdout");
+    }
+
     // Indicate platform limitation on macOS
     if cfg!(target_os = "macos") {
         warn!(
@@ -93,6 +129,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     adapter.start_scan(scan_filter).await?;
     let mut event_stream = adapter.events().await?;
+
+    if let Some(output_file) = &args.output {
+        if let Err(e) = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(output_file)
+        {
+            return Err(format!("Failed to create output file {}: {}", output_file, e).into());
+        }
+    }
 
     while args.timeout == 0 || start_time.elapsed() < Duration::from_secs(args.timeout) {
         // Wait for the next event with a timeout to ensure graceful termination
@@ -113,7 +160,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ => continue, // Ignore any other BLE events
         };
 
-        // Get peripheral and properties
         let peripheral = match adapter.peripheral(&id).await {
             Ok(p) => p,
             Err(_) => continue,
@@ -124,7 +170,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ => continue,
         };
 
-        // Extract device details
         let local_name = properties.local_name.clone();
         let address = peripheral.id();
         let addr_str = format!("{}", address);
@@ -138,7 +183,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             );
         }
 
-        // Process the advertisement
         process_advertisement(
             addr_str,
             local_name,
@@ -234,26 +278,62 @@ async fn process_advertisement(
 }
 
 fn print_device_info(device: &Device, args: &Args) {
-    let name_display = device.name.as_deref().unwrap_or("<unnamed>");
+    let timestamp = chrono::Local::now().to_rfc3339();
 
-    // Header
-    println!(
-        "Device: {} ({}), RSSI: {}dBm",
-        name_display, device.address, device.rssi
-    );
+    if args.json {
+        let raw_data_hex = device.raw_data.as_ref().map(hex::encode);
+        let output = DeviceOutput {
+            name: device.name.as_deref(),
+            address: &device.address,
+            rssi: device.rssi,
+            data: &device.data,
+            raw_data: raw_data_hex,
+            timestamp,
+        };
 
-    // Parsed data
-    match &device.data {
-        Some(packet) => println!("{}", packet),
-        None => println!("  No BThome data found"),
-    }
+        let json_string = serde_json::to_string(&output).unwrap_or_else(|e| {
+            warn!("Failed to serialize to JSON: {}", e);
+            "{}".to_string()
+        });
 
-    // Raw data (only if requested)
-    if args.raw {
-        if let Some(raw) = &device.raw_data {
-            println!("  Raw data: {}", hex::encode(raw));
+        if let Some(output_file) = &args.output {
+            write_to_file(output_file, &json_string).unwrap_or_else(|e| {
+                warn!("Failed to write to file {}: {}", output_file, e);
+            });
+        } else {
+            println!("{}", json_string);
         }
-    }
+    } else {
+        // Traditional text output
+        let name_display = device.name.as_deref().unwrap_or("<unnamed>");
 
-    println!();
+        // Header
+        println!(
+            "Device: {} ({}), RSSI: {}dBm",
+            name_display, device.address, device.rssi
+        );
+
+        // Parsed data
+        match &device.data {
+            Some(packet) => println!("{}", packet),
+            None => println!("  No BThome data found"),
+        }
+
+        // Raw data (only if requested)
+        if args.raw {
+            if let Some(raw) = &device.raw_data {
+                println!("  Raw data: {}", hex::encode(raw));
+            }
+        }
+
+        println!();
+    }
+}
+
+// Helper function to write data to a file
+fn write_to_file(path: &str, data: &str) -> Result<()> {
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+
+    writeln!(file, "{}", data)?;
+    Ok(())
 }

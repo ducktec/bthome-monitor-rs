@@ -9,6 +9,7 @@ use generic_array::{
     typenum::{U4, U13},
 };
 use log::{debug, warn};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
 
@@ -21,7 +22,7 @@ pub const BTHOME_SHORT_UUID: &[u8; 2] = &[0xD2, 0xFC];
 const MIC_LENGTH: usize = 4;
 
 /// BThome measurement data representation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BThomeValue {
     Uint(u64),
     Int(i64),
@@ -43,7 +44,7 @@ impl fmt::Display for BThomeValue {
 }
 
 /// A single BTHome data point
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BThomeData {
     pub measurement_type: String,
     pub value: BThomeValue,
@@ -57,7 +58,7 @@ impl fmt::Display for BThomeData {
 }
 
 /// Encryption status
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum EncryptionStatus {
     /// Not encrypted
     NotEncrypted,
@@ -83,7 +84,7 @@ impl fmt::Display for EncryptionStatus {
 }
 
 /// Container for BTHome advertisement data and metadata
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BThomePacket {
     /// The version of the BTHome protocol
     pub version: u8,
