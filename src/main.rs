@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     if args.verbose {
         log::set_max_level(log::LevelFilter::Debug);
-        debug!("Starting BThome monitor with args: {:?}", args);
+        debug!("Starting BThome monitor with args: {args:?}");
     }
 
     let manager = Manager::new().await?;

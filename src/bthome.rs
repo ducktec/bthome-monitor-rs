@@ -1366,7 +1366,7 @@ fn parse_event(object_id: u8, data: &[u8], i: &mut usize) -> Option<BThomeData> 
                 0x06 => "long_triple_press".to_string(),
                 0x80 => "hold_press".to_string(),
                 _ => {
-                    log::warn!("Unknown button event ID: {:#04x}", event_id);
+                    log::warn!("Unknown button event ID: {event_id:#04x}");
                     "unknown".to_string()
                 }
             };
