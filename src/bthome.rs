@@ -34,11 +34,11 @@ pub enum BThomeValue {
 impl fmt::Display for BThomeValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            BThomeValue::Uint(v) => write!(f, "{}", v),
-            BThomeValue::Int(v) => write!(f, "{}", v),
-            BThomeValue::Float(v) => write!(f, "{:.2}", v),
-            BThomeValue::String(v) => write!(f, "{}", v),
-            BThomeValue::Bool(v) => write!(f, "{}", v),
+            BThomeValue::Uint(v) => write!(f, "{v}"),
+            BThomeValue::Int(v) => write!(f, "{v}"),
+            BThomeValue::Float(v) => write!(f, "{v:.2}"),
+            BThomeValue::String(v) => write!(f, "{v}"),
+            BThomeValue::Bool(v) => write!(f, "{v}"),
         }
     }
 }
@@ -53,7 +53,13 @@ pub struct BThomeData {
 
 impl fmt::Display for BThomeData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {} {}", self.measurement_type, self.value, self.unit)
+        write!(
+            f,
+            "{measurement_type}: {value} {unit}",
+            measurement_type = self.measurement_type,
+            value = self.value,
+            unit = self.unit
+        )
     }
 }
 
@@ -76,7 +82,7 @@ impl fmt::Display for EncryptionStatus {
             EncryptionStatus::NotEncrypted => write!(f, "Not Encrypted"),
             EncryptionStatus::EncryptedNoKey => write!(f, "Encrypted (No Key Provided)"),
             EncryptionStatus::EncryptedFailedDecryption(reason) => {
-                write!(f, "Encrypted (Decryption Failed: {})", reason)
+                write!(f, "Encrypted (Decryption Failed: {reason})")
             }
             EncryptionStatus::Decrypted => write!(f, "Decrypted"),
         }
@@ -141,13 +147,13 @@ impl fmt::Display for BThomePacket {
         }
 
         if let Some(ref error) = self.parse_error {
-            writeln!(f, "Parse Error: {}", error)?;
+            writeln!(f, "Parse Error: {error}")?;
         }
 
         if !self.data.is_empty() {
             writeln!(f, "Data:")?;
             for data_point in &self.data {
-                writeln!(f, "  {}", data_point)?;
+                writeln!(f, "  {data_point}")?;
             }
         } else if self.parse_error.is_none() {
             writeln!(f, "No data points available")?;
@@ -182,8 +188,7 @@ pub fn bthome_parser(
     // Verify the BTHome version is supported
     if version != 2 {
         return Err(anyhow!(
-            "Unsupported BTHome version: {} (only version 2 supported)",
-            version
+            "Unsupported BTHome version: {version} (only version 2 supported)"
         ));
     }
 
@@ -194,7 +199,7 @@ pub fn bthome_parser(
             match decrypt_bthome_data(data, key, device_address) {
                 Ok(decrypted) => (decrypted, EncryptionStatus::Decrypted),
                 Err(e) => {
-                    warn!("Failed to decrypt BTHome data: {}", e);
+                    warn!("Failed to decrypt BTHome data: {e}");
                     return Ok(BThomePacket::new(
                         version,
                         is_trigger_based,
@@ -249,7 +254,7 @@ fn parse_bthome_v2(data: &[u8]) -> Result<Vec<BThomeData>> {
         // Try to parse the object
         match parse_bthome_object(object_id, data, &mut i) {
             Ok(data_point) => {
-                debug!("Parsed BTHome data: {}", data_point);
+                debug!("Parsed BTHome data: {data_point}");
                 results.push(data_point);
             }
             Err(e) => {
@@ -329,7 +334,7 @@ fn decrypt_bthome_data(data: &[u8], encryption_key: &str, device_address: &str) 
             );
             Ok(plaintext)
         }
-        Err(e) => Err(anyhow!("Decryption failed: {}", e)),
+        Err(e) => Err(anyhow!("Decryption failed: {e}")),
     }
 }
 
@@ -928,7 +933,7 @@ fn parse_sensor_data(object_id: u8, data: &[u8], i: &mut usize) -> Option<BThome
             // Convert bytes to hex string
             let hex_string = data[*i..*i + len]
                 .iter()
-                .map(|b| format!("{:02x}", b))
+                .map(|b| format!("{b:02x}"))
                 .collect::<String>();
             *i += len;
             Some(BThomeData {
@@ -1049,7 +1054,7 @@ fn parse_sensor_data(object_id: u8, data: &[u8], i: &mut usize) -> Option<BThome
                     })
                 }
                 Err(e) => {
-                    log::warn!("Invalid UTF-8 in text data: {}", e);
+                    log::warn!("Invalid UTF-8 in text data: {e}");
                     *i += len;
                     None
                 }
@@ -1260,7 +1265,7 @@ fn parse_device_info(object_id: u8, data: &[u8], i: &mut usize) -> Option<BThome
             let patch = (raw >> 8) & 0xFF;
             let minor = (raw >> 16) & 0xFF;
             let major = (raw >> 24) & 0xFF;
-            let version = format!("{}.{}.{}.{}", major, minor, patch, build);
+            let version = format!("{major}.{minor}.{patch}.{build}");
             *i += 4;
             Some(BThomeData {
                 measurement_type: "firmware_version".to_string(),
@@ -1279,7 +1284,7 @@ fn parse_device_info(object_id: u8, data: &[u8], i: &mut usize) -> Option<BThome
             let patch = raw & 0xFF;
             let minor = (raw >> 8) & 0xFF;
             let major = (raw >> 16) & 0xFF;
-            let version = format!("{}.{}.{}", major, minor, patch);
+            let version = format!("{major}.{minor}.{patch}");
             *i += 3;
             Some(BThomeData {
                 measurement_type: "firmware_version".to_string(),
@@ -1327,7 +1332,7 @@ fn parse_binary_sensor(object_id: u8, data: &[u8], i: &mut usize) -> Option<BTho
     };
 
     if *i + 1 > data.len() {
-        log::warn!("Incomplete binary sensor data for {}", measurement_type);
+        log::warn!("Incomplete binary sensor data for {measurement_type}");
         return None;
     }
 
@@ -1384,10 +1389,10 @@ fn parse_event(object_id: u8, data: &[u8], i: &mut usize) -> Option<BThomeData> 
 
             let event_name = match event_id {
                 0x00 => return None, // Don't add "none" events
-                0x01 => format!("rotate_left_{}_steps", steps),
-                0x02 => format!("rotate_right_{}_steps", steps),
+                0x01 => format!("rotate_left_{steps}_steps"),
+                0x02 => format!("rotate_right_{steps}_steps"),
                 _ => {
-                    log::warn!("Unknown dimmer event ID: {:#04x}", event_id);
+                    log::warn!("Unknown dimmer event ID: {event_id:#04x}");
                     "unknown".to_string()
                 }
             };
@@ -1470,9 +1475,7 @@ mod tests {
                     (BThomeValue::Float(actual), BThomeValue::Float(expected)) => {
                         assert!(
                             float_eq(*actual, *expected),
-                            "Failed float value check: got {}, expected {}",
-                            actual,
-                            expected
+                            "Failed float value check: got {actual}, expected {expected}"
                         );
                     }
                     (BThomeValue::String(actual), BThomeValue::String(expected)) => {
@@ -2276,30 +2279,30 @@ mod tests {
     fn test_bthome_value_display() {
         // Test unsigned integer display
         let uint_value = BThomeValue::Uint(42);
-        assert_eq!(format!("{}", uint_value), "42");
+        assert_eq!(uint_value.to_string(), "42");
 
         // Test signed integer display
         let int_value = BThomeValue::Int(-23);
-        assert_eq!(format!("{}", int_value), "-23");
+        assert_eq!(int_value.to_string(), "-23");
 
         // Test float display - should show 2 decimal places
         let float_value = BThomeValue::Float(25.06789);
-        assert_eq!(format!("{}", float_value), "25.07"); // Rounds to 2 decimal places
+        assert_eq!(float_value.to_string(), "25.07"); // Rounds to 2 decimal places
 
         // Test float display with exact 2 decimal places
         let float_value = BThomeValue::Float(10.50);
-        assert_eq!(format!("{}", float_value), "10.50");
+        assert_eq!(float_value.to_string(), "10.50");
 
         // Test string display
         let string_value = BThomeValue::String("test".to_string());
-        assert_eq!(format!("{}", string_value), "test");
+        assert_eq!(string_value.to_string(), "test");
 
         // Test boolean display
         let bool_true_value = BThomeValue::Bool(true);
-        assert_eq!(format!("{}", bool_true_value), "true");
+        assert_eq!(bool_true_value.to_string(), "true");
 
         let bool_false_value = BThomeValue::Bool(false);
-        assert_eq!(format!("{}", bool_false_value), "false");
+        assert_eq!(bool_false_value.to_string(), "false");
     }
 
     #[test]
@@ -2310,7 +2313,7 @@ mod tests {
             value: BThomeValue::Float(25.06),
             unit: "°C".to_string(),
         };
-        assert_eq!(format!("{}", temp_data), "temperature: 25.06 °C");
+        assert_eq!(temp_data.to_string(), "temperature: 25.06 °C");
 
         // Test humidity data display with integer value
         let humidity_data = BThomeData {
@@ -2318,7 +2321,7 @@ mod tests {
             value: BThomeValue::Uint(50),
             unit: "%".to_string(),
         };
-        assert_eq!(format!("{}", humidity_data), "humidity: 50 %");
+        assert_eq!(humidity_data.to_string(), "humidity: 50 %");
 
         // Test binary sensor display
         let door_data = BThomeData {
@@ -2326,7 +2329,7 @@ mod tests {
             value: BThomeValue::Bool(false),
             unit: "".to_string(),
         };
-        assert_eq!(format!("{}", door_data), "door: false ");
+        assert_eq!(door_data.to_string(), "door: false ");
 
         // Test event data display
         let event_data = BThomeData {
@@ -2334,33 +2337,30 @@ mod tests {
             value: BThomeValue::String("press".to_string()),
             unit: "".to_string(),
         };
-        assert_eq!(format!("{}", event_data), "button_event: press ");
+        assert_eq!(event_data.to_string(), "button_event: press ");
     }
 
     #[test]
     fn test_encryption_status_display() {
         // Test not encrypted status
         let not_encrypted = EncryptionStatus::NotEncrypted;
-        assert_eq!(format!("{}", not_encrypted), "Not Encrypted");
+        assert_eq!(not_encrypted.to_string(), "Not Encrypted");
 
         // Test encrypted but no key status
         let encrypted_no_key = EncryptionStatus::EncryptedNoKey;
-        assert_eq!(
-            format!("{}", encrypted_no_key),
-            "Encrypted (No Key Provided)"
-        );
+        assert_eq!(encrypted_no_key.to_string(), "Encrypted (No Key Provided)");
 
         // Test encrypted but failed decryption status
         let failed_decryption =
             EncryptionStatus::EncryptedFailedDecryption("Invalid key".to_string());
         assert_eq!(
-            format!("{}", failed_decryption),
+            failed_decryption.to_string(),
             "Encrypted (Decryption Failed: Invalid key)"
         );
 
         // Test successfully decrypted status
         let decrypted = EncryptionStatus::Decrypted;
-        assert_eq!(format!("{}", decrypted), "Decrypted");
+        assert_eq!(decrypted.to_string(), "Decrypted");
     }
 
     #[test]
@@ -2385,19 +2385,19 @@ mod tests {
         );
 
         // Check the string representation
-        let packet_string = format!("{}", packet);
+        let packet_string = packet.to_string();
         assert!(packet_string.contains("BTHome v2 | Not Encrypted"));
         assert!(packet_string.contains("temperature: 25.06 °C"));
         assert!(packet_string.contains("humidity: 50.55 %"));
 
         // Test with trigger-based
         packet.is_trigger_based = true;
-        let packet_string = format!("{}", packet);
+        let packet_string = packet.to_string();
         assert!(packet_string.contains("Trigger-based: Yes"));
 
         // Test with parse error
         packet.parse_error = Some("Invalid data length".to_string());
-        let packet_string = format!("{}", packet);
+        let packet_string = packet.to_string();
         assert!(packet_string.contains("Parse Error: Invalid data length"));
 
         // Test with error only
@@ -2408,7 +2408,7 @@ mod tests {
             "Failed to parse data".to_string(),
         );
 
-        let error_packet_string = format!("{}", error_packet);
+        let error_packet_string = format!("{error_packet}");
         assert!(error_packet_string.contains("BTHome v2 | Encrypted (Decryption Failed: Bad key)"));
         assert!(error_packet_string.contains("Parse Error: Failed to parse data"));
     }

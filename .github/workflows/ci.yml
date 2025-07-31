@@ -18,8 +18,6 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
           - os: macos-latest
             target: x86_64-apple-darwin
           - os: macos-latest
@@ -41,12 +39,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
-          
-          # For cross-compiling to ARM64
-          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          fi
       
       - name: Rust cache
         uses: Swatinem/rust-cache@v2

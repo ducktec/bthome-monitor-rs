@@ -2,7 +2,6 @@
 use anyhow::Result;
 use btleplug::api::{Central, Manager as _, Peripheral as _, ScanFilter};
 use btleplug::platform::Manager;
-use chrono;
 use clap::Parser;
 use futures::stream::StreamExt;
 use log::{debug, info, warn};
@@ -100,7 +99,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     info!("Starting BLE scan for BThome devices...");
     if let Some(name) = &args.name {
-        info!("Filtering for devices with name: {}", name);
+        info!("Filtering for devices with name: {name}");
     }
 
     if args.json {
@@ -110,7 +109,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if let Some(output_file) = &args.output {
-        info!("Writing output to file: {}", output_file);
+        info!("Writing output to file: {output_file}");
     } else {
         info!("Writing output to stdout");
     }
@@ -130,15 +129,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     adapter.start_scan(scan_filter).await?;
     let mut event_stream = adapter.events().await?;
 
-    if let Some(output_file) = &args.output {
-        if let Err(e) = OpenOptions::new()
+    if let Some(output_file) = &args.output
+        && let Err(e) = OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .open(output_file)
-        {
-            return Err(format!("Failed to create output file {}: {}", output_file, e).into());
-        }
+    {
+        return Err(format!("Failed to create output file {output_file}: {e}").into());
     }
 
     while args.timeout == 0 || start_time.elapsed() < Duration::from_secs(args.timeout) {
@@ -172,14 +170,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         let local_name = properties.local_name.clone();
         let address = peripheral.id();
-        let addr_str = format!("{}", address);
+        let addr_str = address.to_string();
 
         if args.verbose {
             debug!(
-                "Found BThome device: {} ({}), RSSI: {:?}",
+                "Found BThome device: {} ({}), RSSI: {rssi:?}",
                 local_name.as_deref().unwrap_or("<unnamed>"),
                 addr_str,
-                properties.rssi
+                rssi = properties.rssi
             );
         }
 
@@ -209,10 +207,10 @@ async fn process_advertisement(
     args: &Args,
 ) -> Result<()> {
     // Filter by name if specified
-    if let Some(filter_name) = &args.name {
-        if !local_name.as_deref().unwrap_or("").contains(filter_name) {
-            return Ok(());
-        }
+    if let Some(filter_name) = &args.name
+        && !local_name.as_deref().unwrap_or("").contains(filter_name)
+    {
+        return Ok(());
     }
 
     let parsed_data = match bthome_parser(&data, args.key.as_deref(), &address) {
@@ -221,7 +219,7 @@ async fn process_advertisement(
             Some(packet)
         }
         Err(e) => {
-            warn!("Failed to parse BThome data: {}", e);
+            warn!("Failed to parse BThome data: {e}");
             None
         }
     };
@@ -292,16 +290,16 @@ fn print_device_info(device: &Device, args: &Args) {
         };
 
         let json_string = serde_json::to_string(&output).unwrap_or_else(|e| {
-            warn!("Failed to serialize to JSON: {}", e);
+            warn!("Failed to serialize to JSON: {e}");
             "{}".to_string()
         });
 
         if let Some(output_file) = &args.output {
             write_to_file(output_file, &json_string).unwrap_or_else(|e| {
-                warn!("Failed to write to file {}: {}", output_file, e);
+                warn!("Failed to write to file {output_file}: {e}");
             });
         } else {
-            println!("{}", json_string);
+            println!("{json_string}");
         }
     } else {
         // Traditional text output
@@ -315,15 +313,15 @@ fn print_device_info(device: &Device, args: &Args) {
 
         // Parsed data
         match &device.data {
-            Some(packet) => println!("{}", packet),
+            Some(packet) => println!("{packet}"),
             None => println!("  No BThome data found"),
         }
 
         // Raw data (only if requested)
-        if args.raw {
-            if let Some(raw) = &device.raw_data {
-                println!("  Raw data: {}", hex::encode(raw));
-            }
+        if args.raw
+            && let Some(raw) = &device.raw_data
+        {
+            println!("  Raw data: {}", hex::encode(raw));
         }
 
         println!();
@@ -334,6 +332,6 @@ fn print_device_info(device: &Device, args: &Args) {
 fn write_to_file(path: &str, data: &str) -> Result<()> {
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
 
-    writeln!(file, "{}", data)?;
+    writeln!(file, "{data}")?;
     Ok(())
 }
