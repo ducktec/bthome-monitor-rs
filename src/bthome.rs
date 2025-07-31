@@ -1401,3 +1401,904 @@ fn parse_event(object_id: u8, data: &[u8], i: &mut usize) -> Option<BThomeData> 
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper function to create test data bytes
+    fn create_test_data(is_encrypted: bool, data: &[u8]) -> Vec<u8> {
+        let mut result = Vec::new();
+
+        // Format byte: Version 2 (bits 5-7 = 010), not trigger-based, encryption depends on parameter
+        let format_byte = 0x40 | (if is_encrypted { 0x01 } else { 0x00 });
+        result.push(format_byte);
+
+        // Add the data
+        result.extend_from_slice(data);
+
+        result
+    }
+
+    // Helper function to check float values with an epsilon
+    fn float_eq(a: f64, b: f64) -> bool {
+        (a - b).abs() < 0.01
+    }
+
+    // Macro to create a test function for a sensor
+    macro_rules! sensor_test {
+        (
+            $name:ident,                 // Test function name
+            $object_id:expr,             // Object ID byte
+            $data_bytes:expr,            // Raw data bytes
+            $expected_type:expr,         // Expected measurement type
+            $expected_value:expr,        // Expected value
+            $expected_unit:expr          // Expected unit
+        ) => {
+            #[test]
+            fn $name() {
+                let mut test_data = vec![$object_id];
+                test_data.extend_from_slice(&$data_bytes);
+
+                let data = create_test_data(false, &test_data);
+                let result = bthome_parser(&data, None, "00:00:00:00:00:00").unwrap();
+
+                assert_eq!(result.version, 2, "Failed version check");
+                assert_eq!(result.is_trigger_based, false, "Failed trigger-based check");
+                assert_eq!(
+                    result.encryption_status,
+                    EncryptionStatus::NotEncrypted,
+                    "Failed encryption status check"
+                );
+                assert_eq!(result.parse_error, None, "Failed parse error check");
+                assert_eq!(result.data.len(), 1, "Failed data length check");
+
+                let data_point = &result.data[0];
+                assert_eq!(
+                    data_point.measurement_type, $expected_type,
+                    "Failed measurement type check"
+                );
+                assert_eq!(data_point.unit, $expected_unit, "Failed unit check");
+
+                match (&data_point.value, &$expected_value) {
+                    (BThomeValue::Uint(actual), BThomeValue::Uint(expected)) => {
+                        assert_eq!(*actual, *expected, "Failed uint value check");
+                    }
+                    (BThomeValue::Int(actual), BThomeValue::Int(expected)) => {
+                        assert_eq!(*actual, *expected, "Failed int value check");
+                    }
+                    (BThomeValue::Float(actual), BThomeValue::Float(expected)) => {
+                        assert!(
+                            float_eq(*actual, *expected),
+                            "Failed float value check: got {}, expected {}",
+                            actual,
+                            expected
+                        );
+                    }
+                    (BThomeValue::String(actual), BThomeValue::String(expected)) => {
+                        assert_eq!(actual, expected, "Failed string value check");
+                    }
+                    (BThomeValue::Bool(actual), BThomeValue::Bool(expected)) => {
+                        assert_eq!(*actual, *expected, "Failed bool value check");
+                    }
+                    _ => {
+                        panic!("Mismatched value types");
+                    }
+                }
+
+                // Also check what happens if we have one byte too little
+                let incomplete_data = create_test_data(false, &test_data[..test_data.len() - 1]);
+                let incomplete_result =
+                    bthome_parser(&incomplete_data, None, "00:00:00:00:00:00").unwrap();
+                assert!(
+                    incomplete_result.parse_error.is_some(),
+                    "Expected a parse error for incomplete data"
+                );
+                assert_eq!(
+                    incomplete_result.data.len(),
+                    0,
+                    "Expected no data points for incomplete data"
+                );
+            }
+        };
+    }
+
+    // Macro to create a test function for error cases
+    macro_rules! error_test {
+        (
+            $name:ident,                 // Test function name
+            $object_id:expr,             // Object ID byte
+            $data_bytes:expr             // Raw data bytes (incomplete)
+        ) => {
+            #[test]
+            fn $name() {
+                let mut test_data = vec![$object_id];
+                test_data.extend_from_slice(&$data_bytes);
+
+                let data = create_test_data(false, &test_data);
+                let result = bthome_parser(&data, None, "00:00:00:00:00:00").unwrap();
+
+                assert!(
+                    result.parse_error.is_some(),
+                    "Expected a parse error but none was found"
+                );
+                assert_eq!(result.data.len(), 0, "Expected no data points");
+            }
+        };
+    }
+
+    // Temperature tests
+    sensor_test!(
+        test_temperature_sint16_factor_001,
+        0x02,             // Object ID
+        vec![0xca, 0x09], // 2506 -> 25.06°C
+        "temperature",
+        BThomeValue::Float(25.06),
+        "°C"
+    );
+
+    sensor_test!(
+        test_temperature_sint16_factor_01,
+        0x45,             // Object ID
+        vec![0xF6, 0x00], // 246 -> 24.6°C
+        "temperature",
+        BThomeValue::Float(24.6),
+        "°C"
+    );
+
+    sensor_test!(
+        test_temperature_sint8_factor_1,
+        0x57,       // Object ID
+        vec![0x17], // 23°C
+        "temperature",
+        BThomeValue::Int(23),
+        "°C"
+    );
+
+    // Humidity tests
+    sensor_test!(
+        test_humidity_uint16_factor_001,
+        0x03,             // Object ID
+        vec![0xbf, 0x13], // 5055 -> 50.55%
+        "humidity",
+        BThomeValue::Float(50.55),
+        "%"
+    );
+
+    sensor_test!(
+        test_humidity_uint8_factor_1,
+        0x2E,       // Object ID
+        vec![0x32], // 50%
+        "humidity",
+        BThomeValue::Uint(50),
+        "%"
+    );
+
+    // Pressure test
+    sensor_test!(
+        test_pressure,
+        0x04,                   // Object ID
+        vec![0x13, 0x8a, 0x01], // 100883 -> 1008.83 hPa
+        "pressure",
+        BThomeValue::Float(1008.83),
+        "hPa"
+    );
+
+    // Battery test
+    sensor_test!(
+        test_battery,
+        0x01,       // Object ID
+        vec![0x4e], // 78%
+        "battery",
+        BThomeValue::Uint(78),
+        "%"
+    );
+
+    // Illuminance test
+    sensor_test!(
+        test_illuminance,
+        0x05,                   // Object ID
+        vec![0x39, 0x30, 0x00], // 12345 -> 123.45 lux
+        "illuminance",
+        BThomeValue::Float(123.45),
+        "lux"
+    );
+
+    // Binary sensor tests
+    sensor_test!(
+        test_binary_sensor_power_on,
+        0x10,       // Object ID
+        vec![0x01], // On
+        "power",
+        BThomeValue::Bool(true),
+        ""
+    );
+
+    sensor_test!(
+        test_binary_sensor_door_closed,
+        0x1A,       // Object ID
+        vec![0x00], // Closed
+        "door",
+        BThomeValue::Bool(false),
+        ""
+    );
+
+    // Mass tests
+    sensor_test!(
+        test_mass_kg,
+        0x06,             // Object ID
+        vec![0x7E, 0x1D], // 7550 -> 75.5 kg
+        "mass_kg",
+        BThomeValue::Float(75.5),
+        "kg"
+    );
+
+    sensor_test!(
+        test_mass_lb,
+        0x07,             // Object ID
+        vec![0x5E, 0x1A], // 6750 -> 67.5 lb
+        "mass_lb",
+        BThomeValue::Float(67.5),
+        "lb"
+    );
+
+    // CO2 test
+    sensor_test!(
+        test_co2,
+        0x12,             // Object ID
+        vec![0xB8, 0x0B], // 3000 ppm
+        "co2",
+        BThomeValue::Uint(3000),
+        "ppm"
+    );
+
+    // VOC test
+    sensor_test!(
+        test_tvoc,
+        0x13,             // Object ID
+        vec![0x64, 0x00], // 100 µg/m3
+        "tvoc",
+        BThomeValue::Uint(100),
+        "µg/m3"
+    );
+
+    // Moisture tests
+    sensor_test!(
+        test_moisture_uint16_factor_001,
+        0x14,             // Object ID
+        vec![0x58, 0x1B], // 7000 -> 70.00%
+        "moisture",
+        BThomeValue::Float(70.0),
+        "%"
+    );
+
+    sensor_test!(
+        test_moisture_uint8_factor_1,
+        0x2F,       // Object ID
+        vec![0x46], // 70%
+        "moisture",
+        BThomeValue::Uint(70),
+        "%"
+    );
+
+    // PM2.5 test
+    sensor_test!(
+        test_pm25,
+        0x0D,             // Object ID
+        vec![0x1E, 0x00], // 30 µg/m3
+        "pm25",
+        BThomeValue::Uint(30),
+        "µg/m3"
+    );
+
+    // PM10 test
+    sensor_test!(
+        test_pm10,
+        0x0E,             // Object ID
+        vec![0x32, 0x00], // 50 µg/m3
+        "pm10",
+        BThomeValue::Uint(50),
+        "µg/m3"
+    );
+
+    // Voltage tests
+    sensor_test!(
+        test_voltage_factor_0001,
+        0x0C,             // Object ID
+        vec![0xD0, 0x07], // 2000 -> 2.0V
+        "voltage",
+        BThomeValue::Float(2.0),
+        "V"
+    );
+
+    sensor_test!(
+        test_voltage_factor_01,
+        0x4A,             // Object ID
+        vec![0x14, 0x00], // 20 -> 2.0V
+        "voltage",
+        BThomeValue::Float(2.0),
+        "V"
+    );
+
+    // Event tests
+    sensor_test!(
+        test_button_press_event,
+        0x3A,       // Object ID
+        vec![0x01], // Press
+        "button_event",
+        BThomeValue::String("press".to_string()),
+        ""
+    );
+
+    // Count tests
+    sensor_test!(
+        test_count_uint8,
+        0x09,       // Object ID
+        vec![0x0A], // 10
+        "count",
+        BThomeValue::Uint(10),
+        ""
+    );
+
+    sensor_test!(
+        test_count_uint16,
+        0x3D,             // Object ID
+        vec![0xE8, 0x03], // 1000
+        "count",
+        BThomeValue::Uint(1000),
+        ""
+    );
+
+    // Power tests
+    sensor_test!(
+        test_power_uint24_factor_001,
+        0x0B,                   // Object ID
+        vec![0x10, 0x27, 0x00], // 10000 -> 100.00W
+        "power",
+        BThomeValue::Float(100.0),
+        "W"
+    );
+
+    // UV index test
+    sensor_test!(
+        test_uv_index,
+        0x46,       // Object ID
+        vec![0x32], // 50 -> 5.0
+        "uv_index",
+        BThomeValue::Float(5.0),
+        ""
+    );
+
+    // Water test
+    sensor_test!(
+        test_water,
+        0x4F,                         // Object ID
+        vec![0x64, 0x00, 0x00, 0x00], // 100L
+        "water",
+        BThomeValue::Uint(100),
+        "L"
+    );
+
+    // Device info tests
+    sensor_test!(
+        test_packet_id,
+        0x00,       // Object ID
+        vec![0x7B], // 123
+        "packet_id",
+        BThomeValue::Uint(123),
+        ""
+    );
+
+    // Energy tests
+    sensor_test!(
+        test_energy_uint24_factor_0001,
+        0x0A,                   // Object ID
+        vec![0x10, 0x27, 0x00], // 10000 -> 10.0 kWh
+        "energy",
+        BThomeValue::Float(10.0),
+        "kWh"
+    );
+
+    // Error test cases for incomplete data
+    // Temperature missing one byte (should be 2 bytes)
+    error_test!(
+        test_temperature_sint16_incomplete,
+        0x02,       // Object ID
+        vec![0xca]  // Only 1 byte, needs 2
+    );
+
+    // Humidity missing one byte (should be 2 bytes)
+    error_test!(
+        test_humidity_uint16_incomplete,
+        0x03,       // Object ID
+        vec![0xbf]  // Only 1 byte, needs 2
+    );
+
+    // Pressure missing one byte (should be 3 bytes)
+    error_test!(
+        test_pressure_incomplete,
+        0x04,             // Object ID
+        vec![0x13, 0x8a]  // Only 2 bytes, needs 3
+    );
+
+    // Empty data
+    error_test!(
+        test_no_data,
+        0x02,   // Object ID
+        vec![]  // No data bytes
+    );
+
+    // CO2 missing one byte (should be 2 bytes)
+    error_test!(
+        test_co2_incomplete,
+        0x12,       // Object ID
+        vec![0xB8]  // Only 1 byte, needs 2
+    );
+
+    // Power incomplete (should be 3 bytes)
+    error_test!(
+        test_power_incomplete,
+        0x0B,             // Object ID
+        vec![0x10, 0x27]  // Only 2 bytes, needs 3
+    );
+
+    // Water incomplete (should be 4 bytes)
+    error_test!(
+        test_water_incomplete,
+        0x4F,                   // Object ID
+        vec![0x64, 0x00, 0x00]  // Only 3 bytes, needs 4
+    );
+
+    #[test]
+    fn test_parse_multiple_data_points() {
+        // Multiple data points: temperature, humidity, pressure
+        let data = create_test_data(
+            false,
+            &[
+                0x02, 0xca, 0x09, // Temperature 25.06°C
+                0x03, 0xbf, 0x13, // Humidity 50.55%
+                0x04, 0x13, 0x8a, 0x01, // Pressure 1008.83 hPa
+            ],
+        );
+
+        let result = bthome_parser(&data, None, "00:00:00:00:00:00").unwrap();
+
+        assert_eq!(result.data.len(), 3);
+
+        let temp_data = &result.data[0];
+        assert_eq!(temp_data.measurement_type, "temperature");
+        assert!(matches!(temp_data.value, BThomeValue::Float(v) if (v - 25.06).abs() < 0.01));
+
+        let humidity_data = &result.data[1];
+        assert_eq!(humidity_data.measurement_type, "humidity");
+        assert!(matches!(humidity_data.value, BThomeValue::Float(v) if (v - 50.55).abs() < 0.01));
+
+        let pressure_data = &result.data[2];
+        assert_eq!(pressure_data.measurement_type, "pressure");
+        assert!(matches!(pressure_data.value, BThomeValue::Float(v) if (v - 1008.83).abs() < 0.01));
+    }
+
+    #[test]
+    fn test_invalid_object_id() {
+        // Invalid object ID 0xFE
+        let data = create_test_data(false, &[0xFE, 0xca, 0x09]);
+
+        let result = bthome_parser(&data, None, "00:00:00:00:00:00").unwrap();
+
+        assert!(result.parse_error.is_some());
+        assert_eq!(result.data.len(), 0);
+    }
+
+    #[test]
+    fn test_unsupported_version() {
+        // Unsupported version (3)
+        let mut data = Vec::new();
+        data.push(0x60); // Version 3 (bits 5-7 = 011)
+        data.extend_from_slice(&[0x02, 0xca, 0x09]); // Temperature 25.06°C
+
+        let result = bthome_parser(&data, None, "00:00:00:00:00:00");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_trigger_based() {
+        // Trigger-based data
+        let mut data = Vec::new();
+        data.push(0x44); // Version 2, trigger-based (bit 2 = 1)
+        data.extend_from_slice(&[0x02, 0xca, 0x09]); // Temperature 25.06°C
+
+        let result = bthome_parser(&data, None, "00:00:00:00:00:00").unwrap();
+
+        assert_eq!(result.version, 2);
+        assert_eq!(result.is_trigger_based, true);
+    }
+
+    // Test for parsing MAC address
+    #[test]
+    fn test_parse_mac_address() {
+        let result = parse_mac_address("AA:BB:CC:DD:EE:FF").unwrap();
+        assert_eq!(result, [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+
+        let result = parse_mac_address("11:22:33:44:55:66").unwrap();
+        assert_eq!(result, [0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
+
+        let result = parse_mac_address("aa:bb:cc:dd:ee:ff");
+        assert!(result.is_ok());
+
+        let result = parse_mac_address("invalid");
+        assert!(result.is_err());
+
+        let result = parse_mac_address("AA:BB:CC:DD:EE");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_bthome_value_display() {
+        // Test unsigned integer display
+        let uint_value = BThomeValue::Uint(42);
+        assert_eq!(format!("{}", uint_value), "42");
+
+        // Test signed integer display
+        let int_value = BThomeValue::Int(-23);
+        assert_eq!(format!("{}", int_value), "-23");
+
+        // Test float display - should show 2 decimal places
+        let float_value = BThomeValue::Float(25.06789);
+        assert_eq!(format!("{}", float_value), "25.07"); // Rounds to 2 decimal places
+
+        // Test float display with exact 2 decimal places
+        let float_value = BThomeValue::Float(10.50);
+        assert_eq!(format!("{}", float_value), "10.50");
+
+        // Test string display
+        let string_value = BThomeValue::String("test".to_string());
+        assert_eq!(format!("{}", string_value), "test");
+
+        // Test boolean display
+        let bool_true_value = BThomeValue::Bool(true);
+        assert_eq!(format!("{}", bool_true_value), "true");
+
+        let bool_false_value = BThomeValue::Bool(false);
+        assert_eq!(format!("{}", bool_false_value), "false");
+    }
+
+    #[test]
+    fn test_bthome_data_display() {
+        // Test temperature data display
+        let temp_data = BThomeData {
+            measurement_type: "temperature".to_string(),
+            value: BThomeValue::Float(25.06),
+            unit: "°C".to_string(),
+        };
+        assert_eq!(format!("{}", temp_data), "temperature: 25.06 °C");
+
+        // Test humidity data display with integer value
+        let humidity_data = BThomeData {
+            measurement_type: "humidity".to_string(),
+            value: BThomeValue::Uint(50),
+            unit: "%".to_string(),
+        };
+        assert_eq!(format!("{}", humidity_data), "humidity: 50 %");
+
+        // Test binary sensor display
+        let door_data = BThomeData {
+            measurement_type: "door".to_string(),
+            value: BThomeValue::Bool(false),
+            unit: "".to_string(),
+        };
+        assert_eq!(format!("{}", door_data), "door: false ");
+
+        // Test event data display
+        let event_data = BThomeData {
+            measurement_type: "button_event".to_string(),
+            value: BThomeValue::String("press".to_string()),
+            unit: "".to_string(),
+        };
+        assert_eq!(format!("{}", event_data), "button_event: press ");
+    }
+
+    #[test]
+    fn test_encryption_status_display() {
+        // Test not encrypted status
+        let not_encrypted = EncryptionStatus::NotEncrypted;
+        assert_eq!(format!("{}", not_encrypted), "Not Encrypted");
+
+        // Test encrypted but no key status
+        let encrypted_no_key = EncryptionStatus::EncryptedNoKey;
+        assert_eq!(
+            format!("{}", encrypted_no_key),
+            "Encrypted (No Key Provided)"
+        );
+
+        // Test encrypted but failed decryption status
+        let failed_decryption =
+            EncryptionStatus::EncryptedFailedDecryption("Invalid key".to_string());
+        assert_eq!(
+            format!("{}", failed_decryption),
+            "Encrypted (Decryption Failed: Invalid key)"
+        );
+
+        // Test successfully decrypted status
+        let decrypted = EncryptionStatus::Decrypted;
+        assert_eq!(format!("{}", decrypted), "Decrypted");
+    }
+
+    #[test]
+    fn test_bthome_packet_display() {
+        // Create a packet with multiple data points
+        let mut packet = BThomePacket::new(
+            2,
+            false,
+            EncryptionStatus::NotEncrypted,
+            vec![
+                BThomeData {
+                    measurement_type: "temperature".to_string(),
+                    value: BThomeValue::Float(25.06),
+                    unit: "°C".to_string(),
+                },
+                BThomeData {
+                    measurement_type: "humidity".to_string(),
+                    value: BThomeValue::Float(50.55),
+                    unit: "%".to_string(),
+                },
+            ],
+        );
+
+        // Check the string representation
+        let packet_string = format!("{}", packet);
+        assert!(packet_string.contains("BTHome v2 | Not Encrypted"));
+        assert!(packet_string.contains("temperature: 25.06 °C"));
+        assert!(packet_string.contains("humidity: 50.55 %"));
+
+        // Test with trigger-based
+        packet.is_trigger_based = true;
+        let packet_string = format!("{}", packet);
+        assert!(packet_string.contains("Trigger-based: Yes"));
+
+        // Test with parse error
+        packet.parse_error = Some("Invalid data length".to_string());
+        let packet_string = format!("{}", packet);
+        assert!(packet_string.contains("Parse Error: Invalid data length"));
+
+        // Test with error only
+        let error_packet = BThomePacket::with_error(
+            2,
+            false,
+            EncryptionStatus::EncryptedFailedDecryption("Bad key".to_string()),
+            "Failed to parse data".to_string(),
+        );
+
+        let error_packet_string = format!("{}", error_packet);
+        assert!(error_packet_string.contains("BTHome v2 | Encrypted (Decryption Failed: Bad key)"));
+        assert!(error_packet_string.contains("Parse Error: Failed to parse data"));
+    }
+
+    #[test]
+    fn test_bindkey_wrong() {
+        // Test BTHome parser with wrong encryption key
+        // Based on povided spec example
+
+        // Wrong encryption key
+        let bindkey = "331d39c2d7cc1cd1aee224cd096db932";
+
+        let data = vec![
+            0x41, 0xa4, 0x72, 0x66, 0xc9, 0x5f, 0x73, 0x00, 0x11, 0x22, 0x33, 0x78, 0x23, 0x72,
+            0x14,
+        ];
+
+        let address: &'static str = "54:48:E6:8F:80:A5";
+
+        // Parse the data with the wrong key
+        let result = bthome_parser(&data, Some(bindkey), address).unwrap();
+
+        // Assert that the result indicates encryption with failed decryption
+        assert_eq!(result.version, 2);
+        assert_eq!(result.is_trigger_based, false);
+        assert!(matches!(
+            result.encryption_status,
+            EncryptionStatus::EncryptedFailedDecryption(_)
+        ));
+
+        // Since decryption failed, there should be no data points
+        assert_eq!(result.data.len(), 0);
+
+        // The error should mention decryption failure
+        match result.encryption_status {
+            EncryptionStatus::EncryptedFailedDecryption(reason) => {
+                assert!(
+                    reason.contains("Decryption failed"),
+                    "Expected decryption failure message"
+                );
+            }
+            _ => panic!("Expected EncryptedFailedDecryption status"),
+        }
+    }
+
+    #[test]
+    fn test_bindkey_correct() {
+        // Test BTHome parser with correct encryption key
+        // Based on povided spec example
+
+        // Correct encryption key
+        let bindkey = "231d39c1d7cc1ab1aee224cd096db932";
+
+        let data = vec![
+            0x41, 0xa4, 0x72, 0x66, 0xc9, 0x5f, 0x73, 0x00, 0x11, 0x22, 0x33, 0x78, 0x23, 0x72,
+            0x14,
+        ];
+
+        let address: &'static str = "54:48:E6:8F:80:A5";
+
+        // Parse the data with the correct key
+        let result = bthome_parser(&data, Some(bindkey), address).unwrap();
+
+        // Assert that the result indicates successful decryption
+        assert_eq!(result.version, 2);
+        assert_eq!(result.is_trigger_based, false);
+        assert_eq!(result.encryption_status, EncryptionStatus::Decrypted);
+
+        // Verify there is no parse error
+        assert_eq!(result.parse_error, None);
+
+        // The data should contain temperature and humidity readings
+        assert_eq!(result.data.len(), 2);
+
+        // Verify temperature data point (25.06°C)
+        let temp_data = &result.data[0];
+        assert_eq!(temp_data.measurement_type, "temperature");
+        assert!(matches!(temp_data.value, BThomeValue::Float(v) if (v - 25.06).abs() < 0.01));
+        assert_eq!(temp_data.unit, "°C");
+
+        // Verify humidity data point (50.55%)
+        let humidity_data = &result.data[1];
+        assert_eq!(humidity_data.measurement_type, "humidity");
+        assert!(matches!(humidity_data.value, BThomeValue::Float(v) if (v - 50.55).abs() < 0.01));
+        assert_eq!(humidity_data.unit, "%");
+    }
+
+    #[test]
+    fn test_encryption_no_key() {
+        // Test encrypted data when no key is provided
+
+        // Data with encryption flag set
+        let data = vec![
+            0x41, 0xa4, 0x72, 0x66, 0xc9, 0x5f, 0x73, 0x00, 0x11, 0x22, 0x33, 0x78, 0x23, 0x72,
+            0x14,
+        ];
+
+        let address = "54:48:E6:8F:80:A5";
+
+        // Parse the data without providing a key
+        let result = bthome_parser(&data, None, address).unwrap();
+
+        // Assert that the result indicates encryption with no key
+        assert_eq!(result.version, 2);
+        assert_eq!(result.is_trigger_based, false);
+        assert_eq!(result.encryption_status, EncryptionStatus::EncryptedNoKey);
+
+        // Since no key was provided, there should be no data points
+        assert_eq!(result.data.len(), 0);
+    }
+
+    #[test]
+    fn test_encryption_invalid_key_format() {
+        // Test encrypted data with an invalid key format
+
+        // Invalid encryption key (not hex)
+        let bindkey = "not-a-valid-hex-key";
+
+        let data = vec![
+            0x41, 0xa4, 0x72, 0x66, 0xc9, 0x5f, 0x73, 0x00, 0x11, 0x22, 0x33, 0x78, 0x23, 0x72,
+            0x14,
+        ];
+
+        let address = "54:48:E6:8F:80:A5";
+
+        // Parse the data with an invalid key
+        let result = bthome_parser(&data, Some(bindkey), address).unwrap();
+
+        // Assert that the result indicates encryption with failed decryption
+        assert_eq!(result.version, 2);
+        assert_eq!(result.is_trigger_based, false);
+        assert!(matches!(
+            result.encryption_status,
+            EncryptionStatus::EncryptedFailedDecryption(_)
+        ));
+
+        // Since decryption failed, there should be no data points
+        assert_eq!(result.data.len(), 0);
+
+        // The error should mention invalid key format
+        match result.encryption_status {
+            EncryptionStatus::EncryptedFailedDecryption(reason) => {
+                assert!(
+                    reason.contains("Invalid encryption key format"),
+                    "Expected invalid key format message"
+                );
+            }
+            _ => panic!("Expected EncryptedFailedDecryption status"),
+        }
+    }
+
+    #[test]
+    fn test_encryption_key_wrong_length() {
+        // Test encrypted data with a key of wrong length
+
+        // Encryption key too short
+        let bindkey = "814aac74c4f17b6c1581e1ab";
+
+        let data = vec![
+            0x41, 0xa4, 0x72, 0x66, 0xc9, 0x5f, 0x73, 0x00, 0x11, 0x22, 0x33, 0xb7, 0xce, 0xd8,
+            0xe5,
+        ];
+
+        let address = "54:48:E6:8F:80:A5";
+
+        // Parse the data with a key of wrong length
+        let result = bthome_parser(&data, Some(bindkey), address).unwrap();
+
+        // Assert that the result indicates encryption with failed decryption
+        assert_eq!(result.version, 2);
+        assert_eq!(result.is_trigger_based, false);
+        assert!(matches!(
+            result.encryption_status,
+            EncryptionStatus::EncryptedFailedDecryption(_)
+        ));
+
+        // Since decryption failed, there should be no data points
+        assert_eq!(result.data.len(), 0);
+
+        // The error should mention invalid key length
+        match result.encryption_status {
+            EncryptionStatus::EncryptedFailedDecryption(reason) => {
+                assert!(
+                    reason.contains("Invalid encryption key length"),
+                    "Expected invalid key length message"
+                );
+            }
+            _ => panic!("Expected EncryptedFailedDecryption status"),
+        }
+    }
+
+    #[test]
+    fn test_encryption_invalid_mac() {
+        // Test encrypted data with an invalid MAC address
+
+        // Valid encryption key
+        let bindkey = "231d39c1d7cc1ab1aee224cd096db932";
+
+        let data = vec![
+            0x41, 0xa4, 0x72, 0x66, 0xc9, 0x5f, 0x73, 0x00, 0x11, 0x22, 0x33, 0x78, 0x23, 0x72,
+            0x14,
+        ];
+
+        // Invalid MAC address
+        let address = "invalid-mac";
+
+        // Parse the data with an invalid MAC
+        let result = bthome_parser(&data, Some(bindkey), address).unwrap();
+
+        // Assert that the result indicates encryption with failed decryption
+        assert_eq!(result.version, 2);
+        assert_eq!(result.is_trigger_based, false);
+        assert!(matches!(
+            result.encryption_status,
+            EncryptionStatus::EncryptedFailedDecryption(_)
+        ));
+
+        // Since decryption failed, there should be no data points
+        assert_eq!(result.data.len(), 0);
+
+        // The error should mention invalid MAC address
+        match result.encryption_status {
+            EncryptionStatus::EncryptedFailedDecryption(reason) => {
+                assert!(
+                    reason.contains("Invalid MAC address"),
+                    "Expected invalid MAC address message"
+                );
+            }
+            _ => panic!("Expected EncryptedFailedDecryption status"),
+        }
+    }
+}
