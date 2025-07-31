@@ -1623,80 +1623,371 @@ mod tests {
         ""
     );
 
-    // Mass tests
+    // Tests for all the remaining sensor variants
+
+    // Acceleration test
     sensor_test!(
-        test_mass_kg,
-        0x06,             // Object ID
-        vec![0x7E, 0x1D], // 7550 -> 75.5 kg
-        "mass_kg",
-        BThomeValue::Float(75.5),
-        "kg"
+        test_acceleration,
+        0x51,             // Object ID
+        vec![0xe8, 0x03], // 1000 -> 1.000 m/s²
+        "acceleration",
+        BThomeValue::Float(1.000),
+        "m/s²"
     );
 
+    // Channel test
     sensor_test!(
-        test_mass_lb,
-        0x07,             // Object ID
-        vec![0x5E, 0x1A], // 6750 -> 67.5 lb
-        "mass_lb",
-        BThomeValue::Float(67.5),
-        "lb"
+        test_channel,
+        0x60,       // Object ID
+        vec![0x0A], // 10
+        "channel",
+        BThomeValue::Uint(10),
+        ""
     );
 
     // CO2 test
     sensor_test!(
         test_co2,
         0x12,             // Object ID
-        vec![0xB8, 0x0B], // 3000 ppm
+        vec![0x58, 0x02], // 600 ppm
         "co2",
-        BThomeValue::Uint(3000),
+        BThomeValue::Uint(600),
         "ppm"
     );
 
-    // VOC test
+    // Conductivity test
     sensor_test!(
-        test_tvoc,
-        0x13,             // Object ID
-        vec![0x64, 0x00], // 100 µg/m3
-        "tvoc",
+        test_conductivity,
+        0x56,             // Object ID
+        vec![0x96, 0x00], // 150 µS/cm
+        "conductivity",
+        BThomeValue::Uint(150),
+        "µS/cm"
+    );
+
+    // Count tests
+    sensor_test!(
+        test_count_uint8,
+        0x09,       // Object ID
+        vec![0x05], // 5
+        "count",
+        BThomeValue::Uint(5),
+        ""
+    );
+
+    sensor_test!(
+        test_count_uint16,
+        0x3D,             // Object ID
+        vec![0xF4, 0x01], // 500
+        "count",
+        BThomeValue::Uint(500),
+        ""
+    );
+
+    sensor_test!(
+        test_count_uint32,
+        0x3E,                         // Object ID
+        vec![0x40, 0x42, 0x0F, 0x00], // 1000000
+        "count",
+        BThomeValue::Uint(1000000),
+        ""
+    );
+
+    sensor_test!(
+        test_count_sint8,
+        0x59,       // Object ID
+        vec![0xFB], // -5
+        "count",
+        BThomeValue::Int(-5),
+        ""
+    );
+
+    sensor_test!(
+        test_count_sint16,
+        0x5A,             // Object ID
+        vec![0x0C, 0xFE], // -500
+        "count",
+        BThomeValue::Int(-500),
+        ""
+    );
+
+    sensor_test!(
+        test_count_sint32,
+        0x5B,                         // Object ID
+        vec![0xC0, 0xBD, 0xF0, 0xFF], // -1000000
+        "count",
+        BThomeValue::Int(-1000000),
+        ""
+    );
+
+    // Current tests
+    sensor_test!(
+        test_current_uint16,
+        0x43,             // Object ID
+        vec![0xE8, 0x03], // 1000 -> 1.000 A
+        "current",
+        BThomeValue::Float(1.000),
+        "A"
+    );
+
+    sensor_test!(
+        test_current_sint16,
+        0x5D,             // Object ID
+        vec![0x18, 0xFC], // -1000 -> -1.000 A
+        "current",
+        BThomeValue::Float(-1.000),
+        "A"
+    );
+
+    // Dewpoint test
+    sensor_test!(
+        test_dewpoint,
+        0x08,             // Object ID
+        vec![0x94, 0x01], // 404 -> 4.04°C
+        "dewpoint",
+        BThomeValue::Float(4.04),
+        "°C"
+    );
+
+    // Direction test
+    sensor_test!(
+        test_direction,
+        0x5E,             // Object ID
+        vec![0x68, 0x01], // 360 -> 3.60°
+        "direction",
+        BThomeValue::Float(3.60),
+        "°"
+    );
+
+    // Distance tests
+    sensor_test!(
+        test_distance_mm,
+        0x40,             // Object ID
+        vec![0x14, 0x00], // 20 mm
+        "distance_mm",
+        BThomeValue::Uint(20),
+        "mm"
+    );
+
+    sensor_test!(
+        test_distance_m,
+        0x41,             // Object ID
+        vec![0x14, 0x00], // 20 -> 2.0 m
+        "distance_m",
+        BThomeValue::Float(2.0),
+        "m"
+    );
+
+    // Duration test
+    sensor_test!(
+        test_duration,
+        0x42,                   // Object ID
+        vec![0xD0, 0x07, 0x00], // 2000 -> 2.000 s
+        "duration",
+        BThomeValue::Float(2.000),
+        "s"
+    );
+
+    // Energy tests
+    sensor_test!(
+        test_energy_uint32,
+        0x4D,                         // Object ID
+        vec![0x10, 0x27, 0x00, 0x00], // 10000 -> 10.000 Wh
+        "energy",
+        BThomeValue::Float(10.000),
+        "Wh"
+    );
+
+    sensor_test!(
+        test_energy_uint24,
+        0x0A,                   // Object ID
+        vec![0x10, 0x27, 0x00], // 10000 -> 10.000 kWh
+        "energy",
+        BThomeValue::Float(10.000),
+        "kWh"
+    );
+
+    // Gas tests
+    sensor_test!(
+        test_gas_uint24,
+        0x4B,                   // Object ID
+        vec![0x0A, 0x00, 0x00], // 10 m3
+        "gas",
+        BThomeValue::Uint(10),
+        "m3"
+    );
+
+    sensor_test!(
+        test_gas_uint32,
+        0x4C,                         // Object ID
+        vec![0x64, 0x00, 0x00, 0x00], // 100 m3
+        "gas",
         BThomeValue::Uint(100),
-        "µg/m3"
+        "m3"
+    );
+
+    // Gyroscope test
+    sensor_test!(
+        test_gyroscope,
+        0x52,             // Object ID
+        vec![0x2C, 0x01], // 300 °/s
+        "gyroscope",
+        BThomeValue::Uint(300),
+        "°/s"
+    );
+
+    // Mass tests
+    sensor_test!(
+        test_mass_kg,
+        0x06,             // Object ID
+        vec![0x46, 0x00], // 70 -> 0.70 kg
+        "mass_kg",
+        BThomeValue::Float(0.70),
+        "kg"
+    );
+
+    sensor_test!(
+        test_mass_lb,
+        0x07,             // Object ID
+        vec![0x9D, 0x00], // 157 -> 1.57 lb
+        "mass_lb",
+        BThomeValue::Float(1.57),
+        "lb"
     );
 
     // Moisture tests
     sensor_test!(
-        test_moisture_uint16_factor_001,
+        test_moisture_uint16,
         0x14,             // Object ID
-        vec![0x58, 0x1B], // 7000 -> 70.00%
+        vec![0xF4, 0x01], // 500 -> 5.00%
         "moisture",
-        BThomeValue::Float(70.0),
+        BThomeValue::Float(5.00),
         "%"
     );
 
     sensor_test!(
-        test_moisture_uint8_factor_1,
+        test_moisture_uint8,
         0x2F,       // Object ID
-        vec![0x46], // 70%
+        vec![0x05], // 5%
         "moisture",
-        BThomeValue::Uint(70),
+        BThomeValue::Uint(5),
         "%"
     );
 
-    // PM2.5 test
+    // PM tests
     sensor_test!(
         test_pm25,
         0x0D,             // Object ID
-        vec![0x1E, 0x00], // 30 µg/m3
+        vec![0x14, 0x00], // 20 µg/m3
         "pm25",
-        BThomeValue::Uint(30),
+        BThomeValue::Uint(20),
         "µg/m3"
     );
 
-    // PM10 test
     sensor_test!(
         test_pm10,
         0x0E,             // Object ID
-        vec![0x32, 0x00], // 50 µg/m3
+        vec![0x28, 0x00], // 40 µg/m3
         "pm10",
+        BThomeValue::Uint(40),
+        "µg/m3"
+    );
+
+    // Power tests
+    sensor_test!(
+        test_power_uint24,
+        0x0B,                   // Object ID
+        vec![0xE8, 0x03, 0x00], // 1000 -> 10.00 W
+        "power",
+        BThomeValue::Float(10.00),
+        "W"
+    );
+
+    sensor_test!(
+        test_power_sint32,
+        0x5C,                         // Object ID
+        vec![0x18, 0xFC, 0xFF, 0xFF], // -1000 -> -10.00 W
+        "power",
+        BThomeValue::Float(-10.00),
+        "W"
+    );
+
+    // Precipitation test
+    sensor_test!(
+        test_precipitation,
+        0x5F,             // Object ID
+        vec![0x0A, 0x00], // 10 -> 1.0 mm
+        "precipitation",
+        BThomeValue::Float(1.0),
+        "mm"
+    );
+
+    // Raw measurement test
+    sensor_test!(
+        test_raw_measurement,
+        0x54,                         // Object ID
+        vec![0x03, 0x01, 0x02, 0x03], // 3 bytes: 01 02 03
+        "raw",
+        BThomeValue::String("010203".to_string()),
+        ""
+    );
+
+    // Rotation test
+    sensor_test!(
+        test_rotation,
+        0x3F,             // Object ID
+        vec![0x2C, 0x01], // 300 -> 30.0°
+        "rotation",
+        BThomeValue::Float(30.0),
+        "°"
+    );
+
+    // Speed test
+    sensor_test!(
+        test_speed,
+        0x44,             // Object ID
+        vec![0x58, 0x02], // 600 -> 6.00 m/s
+        "speed",
+        BThomeValue::Float(6.00),
+        "m/s"
+    );
+
+    // Temperature alternate representation tests
+    sensor_test!(
+        test_temperature_sint8_factor_035,
+        0x58,       // Object ID
+        vec![0x05], // 5 -> 1.75°C
+        "temperature",
+        BThomeValue::Float(1.75),
+        "°C"
+    );
+
+    // Text test
+    sensor_test!(
+        test_text,
+        0x53,                               // Object ID
+        vec![0x04, 0x74, 0x65, 0x73, 0x74], // 4 bytes: "test"
+        "text",
+        BThomeValue::String("test".to_string()),
+        ""
+    );
+
+    // Timestamp test
+    sensor_test!(
+        test_timestamp,
+        0x50,                         // Object ID
+        vec![0x00, 0x94, 0x35, 0x77], // 2000000000 s
+        "timestamp",
+        BThomeValue::Uint(2000000000),
+        "s"
+    );
+
+    // TVOC test
+    sensor_test!(
+        test_tvoc,
+        0x13,             // Object ID
+        vec![0x32, 0x00], // 50 µg/m3
+        "tvoc",
         BThomeValue::Uint(50),
         "µg/m3"
     );
@@ -1705,67 +1996,76 @@ mod tests {
     sensor_test!(
         test_voltage_factor_0001,
         0x0C,             // Object ID
-        vec![0xD0, 0x07], // 2000 -> 2.0V
+        vec![0xE8, 0x03], // 1000 -> 1.000 V
         "voltage",
-        BThomeValue::Float(2.0),
+        BThomeValue::Float(1.000),
         "V"
     );
 
     sensor_test!(
         test_voltage_factor_01,
         0x4A,             // Object ID
-        vec![0x14, 0x00], // 20 -> 2.0V
+        vec![0x0A, 0x00], // 10 -> 1.0 V
         "voltage",
-        BThomeValue::Float(2.0),
+        BThomeValue::Float(1.0),
         "V"
     );
 
-    // Event tests
+    // Volume tests
     sensor_test!(
-        test_button_press_event,
-        0x3A,       // Object ID
-        vec![0x01], // Press
-        "button_event",
-        BThomeValue::String("press".to_string()),
-        ""
-    );
-
-    // Count tests
-    sensor_test!(
-        test_count_uint8,
-        0x09,       // Object ID
-        vec![0x0A], // 10
-        "count",
-        BThomeValue::Uint(10),
-        ""
+        test_volume_uint32,
+        0x4E,                         // Object ID
+        vec![0x64, 0x00, 0x00, 0x00], // 100 L
+        "volume",
+        BThomeValue::Uint(100),
+        "L"
     );
 
     sensor_test!(
-        test_count_uint16,
-        0x3D,             // Object ID
-        vec![0xE8, 0x03], // 1000
-        "count",
-        BThomeValue::Uint(1000),
-        ""
+        test_volume_uint16_factor_01,
+        0x47,             // Object ID
+        vec![0x64, 0x00], // 100 -> 10.0 L
+        "volume",
+        BThomeValue::Float(10.0),
+        "L"
     );
 
-    // Power tests
     sensor_test!(
-        test_power_uint24_factor_001,
-        0x0B,                   // Object ID
-        vec![0x10, 0x27, 0x00], // 10000 -> 100.00W
-        "power",
-        BThomeValue::Float(100.0),
-        "W"
+        test_volume_uint16_factor_1,
+        0x48,             // Object ID
+        vec![0x64, 0x00], // 100 mL
+        "volume",
+        BThomeValue::Uint(100),
+        "mL"
+    );
+
+    // Volume storage test
+    sensor_test!(
+        test_volume_storage,
+        0x55,                         // Object ID
+        vec![0x10, 0x27, 0x00, 0x00], // 10000 L
+        "volume_storage",
+        BThomeValue::Uint(10000),
+        "L"
+    );
+
+    // Volume flow rate test
+    sensor_test!(
+        test_volume_flow_rate,
+        0x49,             // Object ID
+        vec![0xE8, 0x03], // 1000 -> 1.000 m3/hr
+        "volume_flow_rate",
+        BThomeValue::Float(1.000),
+        "m3/hr"
     );
 
     // UV index test
     sensor_test!(
         test_uv_index,
         0x46,       // Object ID
-        vec![0x32], // 50 -> 5.0
+        vec![0x0A], // 10 -> 1.0
         "uv_index",
-        BThomeValue::Float(5.0),
+        BThomeValue::Float(1.0),
         ""
     );
 
@@ -1773,30 +2073,68 @@ mod tests {
     sensor_test!(
         test_water,
         0x4F,                         // Object ID
-        vec![0x64, 0x00, 0x00, 0x00], // 100L
+        vec![0x64, 0x00, 0x00, 0x00], // 100 L
         "water",
         BThomeValue::Uint(100),
         "L"
     );
 
-    // Device info tests
+    // Device Info tests
     sensor_test!(
         test_packet_id,
         0x00,       // Object ID
-        vec![0x7B], // 123
+        vec![0x42], // 66
         "packet_id",
-        BThomeValue::Uint(123),
+        BThomeValue::Uint(66),
         ""
     );
 
-    // Energy tests
     sensor_test!(
-        test_energy_uint24_factor_0001,
-        0x0A,                   // Object ID
-        vec![0x10, 0x27, 0x00], // 10000 -> 10.0 kWh
-        "energy",
-        BThomeValue::Float(10.0),
-        "kWh"
+        test_device_type_id,
+        0xF0,             // Object ID
+        vec![0x01, 0x00], // 1
+        "device_type_id",
+        BThomeValue::Uint(1),
+        ""
+    );
+
+    // Test firmware version (major.minor.patch.build)
+    sensor_test!(
+        test_firmware_version_32bit,
+        0xF1,                         // Object ID
+        vec![0x04, 0x03, 0x02, 0x01], // 1.2.3.4
+        "firmware_version",
+        BThomeValue::String("1.2.3.4".to_string()),
+        ""
+    );
+
+    // Test firmware version (major.minor.patch)
+    sensor_test!(
+        test_firmware_version_24bit,
+        0xF2,                   // Object ID
+        vec![0x03, 0x02, 0x01], // 1.2.3
+        "firmware_version",
+        BThomeValue::String("1.2.3".to_string()),
+        ""
+    );
+
+    // Test for event button
+    sensor_test!(
+        test_event_button,
+        0x3A,       // Object ID
+        vec![0x01], // press
+        "button_event",
+        BThomeValue::String("press".to_string()),
+        ""
+    );
+
+    sensor_test!(
+        test_event_dimmer,
+        0x3B,             // Object ID
+        vec![0x01, 0x02], // rotate left 2 steps
+        "dimmer_event",
+        BThomeValue::String("rotate_left_2_steps".to_string()),
+        ""
     );
 
     // Error test cases for incomplete data
@@ -1863,6 +2201,7 @@ mod tests {
 
         let result = bthome_parser(&data, None, "00:00:00:00:00:00").unwrap();
 
+        assert_eq!(None, result.parse_error);
         assert_eq!(result.data.len(), 3);
 
         let temp_data = &result.data[0];
