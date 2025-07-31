@@ -1,6 +1,6 @@
 [package]
 name = "bthome-scan"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "A CLI utility to scan and decode BTHome BLE advertisements"
 keywords = ["bthome", "ble", "scan", "cli", "sensor"]
