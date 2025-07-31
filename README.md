@@ -1,5 +1,8 @@
 # BTHome Scan CLI
 
+[![CI](https://github.com/ducktec/bthome-monitor-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/ducktec/bthome-monitor-rs/actions/workflows/ci.yml)
+[![Security Audit](https://github.com/ducktec/bthome-monitor-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/ducktec/bthome-monitor-rs/actions/workflows/audit.yml)
+
 A Rust CLI utility that scans for [BTHome](https://bthome.io/) Bluetooth Low Energy (BLE) advertisements and decodes their data. Both encrypted and unencrypted BTHome advertisements are supported.
 
 ## Installation
