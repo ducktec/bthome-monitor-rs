@@ -1,7 +1,7 @@
 # BTHome Scan CLI
 
-[![CI](https://github.com/ducktec/bthome-monitor-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/ducktec/bthome-monitor-rs/actions/workflows/ci.yml)
-[![Security Audit](https://github.com/ducktec/bthome-monitor-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/ducktec/bthome-monitor-rs/actions/workflows/audit.yml)
+[![CI](https://github.com/ducktec/bthome-scan-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/ducktec/bthome-scan-rs/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/bthome-scan.svg)](https://crates.io/crates/bthome-scan)
 
 A Rust CLI utility that scans for [BTHome](https://bthome.io/) Bluetooth Low Energy (BLE) advertisements and decodes their data. Both encrypted and unencrypted BTHome advertisements are supported.
 
@@ -10,15 +10,15 @@ A Rust CLI utility that scans for [BTHome](https://bthome.io/) Bluetooth Low Ene
 ### Install via `cargo`
 
 ````bash
-cargo install bthome-monitor-rs
+cargo install bthome-scan
 ````
 
 ### Building from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/ducktec/bthome-monitor-rs.git
-cd bthome-monitor-rs
+git clone https://github.com/ducktec/bthome-scan-rs.git
+cd bthome-scan-rs
 
 # Build with Cargo
 cargo build --release
@@ -35,7 +35,7 @@ cargo run -- <options>
 ```
 CLI to scan BThome advertisement BLE packets
 
-Usage: bthome-monitor-rs [OPTIONS]
+Usage: bthome-scan [OPTIONS]
 
 Options:
   -v, --verbose            Enable verbose output

@@ -52,9 +52,9 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            ls -la "target/${{ matrix.target }}/release/bthome-monitor-rs.exe"
+            ls -la "target/${{ matrix.target }}/release/bthome-scan.exe"
           else
-            ls -la "target/${{ matrix.target }}/release/bthome-monitor-rs"
+            ls -la "target/${{ matrix.target }}/release/bthome-scan"
           fi
 
   test:
@@ -122,3 +122,28 @@ jobs:
       
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
+      
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Build documentation
+        run: cargo doc --no-deps --document-private-items
+      
+      - name: Check documentation result
+        run: ls -la target/doc/
