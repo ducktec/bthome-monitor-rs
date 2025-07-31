@@ -2,6 +2,12 @@
 name = "bthome-scan"
 version = "0.1.0"
 edition = "2024"
+description = "A CLI utility to scan and decode BTHome BLE advertisements"
+keywords = ["bthome", "bluetooth", "ble", "scan", "cli", "sensor"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ducktec/bthome-scan-rs"
+authors = ["Robert Wiewel <dev@ducktec.de>"]
+readme = "README.md"
 
 [dependencies]
 btleplug = "0.11"
